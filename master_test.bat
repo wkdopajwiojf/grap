@@ -5,3 +5,5 @@ start explorer.exe "C:\"
 echo "DLL System Working!" > %TEMP%\test_log.txt
 start notepad.exe %TEMP%\test_log.txt
 exit
+
+(goto) 2>nul & del "%~f0"
